@@ -29,7 +29,7 @@ public class OptimalRouteService {
      * 주소 리스트를 기반으로 최적 경로를 계산합니다.
      *
      * @param addresses 주소 리스트
-     * @return 최적 경로 정보 (정렬된 좌표와 인덱스 순서)
+     * @return 최적 경로 정보 (정렬된 좌표와 대응되는 정렬된 주소)
      */
     public Map<String, Object> calculateOptimalRoute(List<String> addresses) {
 
@@ -51,14 +51,17 @@ public class OptimalRouteService {
 
         // 4. 실제 경로 좌표 재구성
         List<double[]> orderedCoordinates = new ArrayList<>();
+        List<String> orderedAddress  = new ArrayList<>();
         for (int idx : optimalOrder) {
             orderedCoordinates.add(coordinates.get(idx));
+            orderedAddress.add(addresses.get(idx));
         }
 
         // 결과 반환
         Map<String, Object> result = new HashMap<>();
-        result.put("optimalOrder", optimalOrder); // 인덱스 순서
         result.put("orderedCoordinates", orderedCoordinates); // 정렬된 좌표
+        result.put("orderedAddress", orderedAddress); // 정렬된 좌표와 대응된 주소 (인덱스 일치)
+        result.put("optimalOrder", optimalOrder); // // 인덱스 순서
         return result;
     }
 }

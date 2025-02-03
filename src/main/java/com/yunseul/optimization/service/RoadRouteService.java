@@ -1,19 +1,13 @@
 package com.yunseul.optimization.service;
 
+import com.yunseul.optimization.dto.NaverDirectionsOptionEnum;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
- * 도로 기반의 최적 경로를 계산하고 반환하는 서비스.
- *
- * 주요 기능:
- * - 출발지, 경유지, 목적지 간 도로 경로 계산
- * - Directions API 호출을 통해 도로 기반의 경로 반환
- * - 경유지가 15개를 초과할 경우 배치 처리
+ * 도로 기반 경로 탐색 서비스
  */
 @Service
 @RequiredArgsConstructor
@@ -22,67 +16,136 @@ public class RoadRouteService {
     private final DirectionsApiClient directionsApiClient;
 
     /**
-     * 주어진 좌표 리스트를 기반으로 출발지, 경유지, 도착지 까지의 도로 기반의 최적의 경로를 도출 합니다.
-     *
-     * @param coords 출발지, 경유지, 목적지가 포함된 좌표 리스트 (lat, lng 순)
-     * @return 도로 기반 최적 경로 좌표 리스트
+     * 최적 경로 계산
      */
-    public List<double[]> calculateRoute(List<double[]> coords) {
+    public Map<String, Object> calculateRoute(List<double[]> coords, NaverDirectionsOptionEnum option) {
         if (coords.size() <= 2) {
-            // 출발~도착만 있으면 경유지가 없음
-            return directionsApiClient.getRoadPath(coords.get(0), coords.get(1), Collections.emptyList());
+            return callDirectionsApi(coords.get(0), coords.get(1), Collections.emptyList(), option);
         }
 
-        // start / end / waypoints
         double[] start = coords.get(0);
         double[] end = coords.get(coords.size() - 1);
         List<double[]> waypoints = coords.subList(1, coords.size() - 1);
 
-        // 경유지 15개 이하
-        if (waypoints.size() <= 15) {
-            return directionsApiClient.getRoadPath(start, end, waypoints);
+        List<Map<String, Object>> responses;
+
+        if (waypoints.size() > 15) {
+            responses = handleChunkedWaypoints(start, end, waypoints, option);
+        } else {
+            responses = List.of(callDirectionsApi(start, end, waypoints, option));
         }
-        // 경유지 15개 초과
-        else {
-            return handleChunkedWaypoints(start, end, waypoints);
-        }
+
+        return mergeResponses(responses, option);
     }
 
     /**
-     * 경유지가 15개를 초과할 경우, API 호출을 여러 번 나누어 수행하고 결과를 병합합니다.
-     *
-     * @param start     출발지 좌표 (lat, lng 순)
-     * @param end       목적지 좌표 (lat, lng 순)
-     * @param waypoints 경유지 좌표 리스트 (lat, lng 순)
-     * @return 병합된 도로 기반 경로 좌표 리스트
+     * 네이버 Directions API 호출 래퍼
      */
-    private List<double[]> handleChunkedWaypoints(double[] start, double[] end, List<double[]> waypoints) {
+    private Map<String, Object> callDirectionsApi(double[] start, double[] end, List<double[]> waypoints, NaverDirectionsOptionEnum option) {
+        return directionsApiClient.getRoadPath(start, end, waypoints, option);
+    }
+
+    /**
+     * 경유지가 15개 초과일 경우 API 요청을 분할하여 실행
+     */
+    private List<Map<String, Object>> handleChunkedWaypoints(double[] start, double[] end, List<double[]> waypoints, NaverDirectionsOptionEnum option) {
         final int BATCH = 15;
-        List<double[]> mergedPath = new ArrayList<>();
+        List<Map<String, Object>> responses = new ArrayList<>();
         double[] currentStart = start;
         int index = 0;
 
         while (index < waypoints.size()) {
             int endIndex = Math.min(index + BATCH, waypoints.size());
-            List<double[]> subWaypoints = waypoints.subList(index, endIndex);
+            List<double[]> subWaypoints = new ArrayList<>(waypoints.subList(index, endIndex));
             boolean isLastBatch = (endIndex == waypoints.size());
-            double[] currentEnd = isLastBatch ? end : waypoints.get(endIndex - 1);
+            double[] currentEnd = isLastBatch ? end : waypoints.get(endIndex);
 
-            // Directions 호출
-            List<double[]> partialPath = directionsApiClient.getRoadPath(currentStart, currentEnd, subWaypoints);
+            responses.add(callDirectionsApi(currentStart, currentEnd, subWaypoints, option));
 
-            // 병합 과정에서 중복 제거
-            if (!mergedPath.isEmpty()) {
-                partialPath.remove(0);
-            }
-
-            mergedPath.addAll(partialPath);
-
-            // 다음 배치를 위해 start 업데이트
             currentStart = currentEnd;
             index = endIndex;
         }
 
-        return mergedPath;
+        return responses;
+    }
+
+    /**
+     * 여러 개의 API 응답을 병합하여 최적 경로 생성
+     */
+    private Map<String, Object> mergeResponses(List<Map<String, Object>> responses, NaverDirectionsOptionEnum option) {
+        Map<String, Object> mergedResponse = new HashMap<>();
+        List<List<Double>> mergedPath = new ArrayList<>();
+        List<Map<String, Object>> mergedGuide = new ArrayList<>();
+        int totalDuration = 0;
+        int totalDistance = 0;
+        int currentPointIndex = 0; // 전체 경로에서의 pointIndex
+
+        List<Double> lastPoint = null;
+        Map<String, Object> lastInstruction = null;
+
+        for (int i = 0; i < responses.size(); i++) {
+            Map<String, Object> response = responses.get(i);
+            Map<String, Object> route = (Map<String, Object>) response.get("route");
+
+            List<Map<String, Object>> routeList = (List<Map<String, Object>>) route.get(option.getValue());
+            Map<String, Object> routeInfo = routeList.get(0);
+
+            List<List<Double>> path = (List<List<Double>>) routeInfo.get("path");
+
+            // 🔥 경도(lng), 위도(lat) 순서로 변환하여 저장
+            List<List<Double>> correctedPath = new ArrayList<>();
+            for (List<Double> coords : path) {
+                if (coords.size() == 2) {
+                    correctedPath.add(Arrays.asList(coords.get(1), coords.get(0))); // [위도, 경도] → [경도, 위도] 변환
+                }
+            }
+
+            // 🔥 중복된 첫 번째 좌표 제거 (연결을 위해)
+            if (lastPoint != null && lastPoint.equals(correctedPath.get(0))) {
+                correctedPath.remove(0);
+            }
+
+            Map<String, Object> summary = (Map<String, Object>) routeInfo.get("summary");
+            Integer duration = (Integer) summary.get("duration");
+            Integer distance = (Integer) summary.get("distance");
+
+            // 🔥 중복된 거리 및 시간 값 제거 (첫 번째 응답 제외)
+            if (i > 0) {
+                totalDuration += (duration - (Integer) lastInstruction.get("duration"));
+                totalDistance += (distance - (Integer) lastInstruction.get("distance"));
+            } else {
+                totalDuration += duration;
+                totalDistance += distance;
+            }
+
+            // 🔥 가이드(경로 안내) 리스트 가져오기
+            List<Map<String, Object>> guide = (List<Map<String, Object>>) routeInfo.get("guide");
+
+            // 🔥 중복된 "목적지" 가이드 제거 (첫 번째 응답 제외)
+            if (i > 0 && lastInstruction != null && lastInstruction.get("instructions").toString().contains("목적지")) {
+                mergedGuide.remove(mergedGuide.size() - 1);
+            }
+
+            // 🔥 pointIndex 값 재계산 (현재까지의 경로 길이를 기준으로 재정렬)
+            for (Map<String, Object> guideStep : guide) {
+                int originalIndex = (Integer) guideStep.get("pointIndex");
+                guideStep.put("pointIndex", currentPointIndex + originalIndex);
+            }
+
+            mergedPath.addAll(correctedPath); // 🔥 순서가 수정된 경로 추가
+            mergedGuide.addAll(guide);
+
+            lastPoint = correctedPath.get(correctedPath.size() - 1);
+            lastInstruction = mergedGuide.get(mergedGuide.size() - 1);
+
+            // 🔥 다음 세그먼트를 위한 전체 index 업데이트
+            currentPointIndex = mergedPath.size();
+        }
+
+        return Map.of("route", Map.of(
+                "path", mergedPath,
+                "guide", mergedGuide,
+                "summary", Map.of("duration", totalDuration, "distance", totalDistance)
+        ));
     }
 }

@@ -1,6 +1,6 @@
 package com.yunseul.optimization.service;
 
-
+import com.yunseul.optimization.dto.NaverDirectionsOptionEnum;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -34,15 +33,15 @@ public class DirectionsApiClient {
     private String clientSecret;
 
     /**
-     * 네이버 Directions 15 API를 호출하여 도로 경로를 가져옵니다.
+     * 네이버 Directions 15 API를 호출하여 도로 경로 및 기타 정보를 가져옵니다.
      *
      * @param start     출발지 좌표 (lat, lng 순)
      * @param end       목적지 좌표 (lat, lng 순)
      * @param waypoints 경유지 좌표 리스트 (lat, lng 순)
-     * @return 도로 기반 경로 좌표 리스트 (lat, lng 순)
+     * @return API 응답 본문 (Map 형태)
      * @throws RuntimeException API 호출 실패 시 예외 발생
      */
-    public List<double[]> getRoadPath(double[] start, double[] end, List<double[]> waypoints) {
+    public Map<String, Object> getRoadPath(double[] start, double[] end, List<double[]> waypoints, NaverDirectionsOptionEnum option) {
         // 1) start, end, waypoints 파라미터 변환
         String startParam = String.format("%f,%f", start[1], start[0]);
         String goalParam = String.format("%f,%f", end[1], end[0]);
@@ -60,7 +59,7 @@ public class DirectionsApiClient {
         UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(DIRECTIONS_URL)
                 .queryParam("start", startParam)
                 .queryParam("goal", goalParam)
-                .queryParam("option", "traoptimal");
+                .queryParam("option", option.getValue());
 
         if (!waypoints.isEmpty()) {
             builder.queryParam("waypoints", wps.toString());
@@ -77,16 +76,7 @@ public class DirectionsApiClient {
         ResponseEntity<Map> response = restTemplate.exchange(builder.toUriString(), HttpMethod.GET, entity, Map.class);
 
         if (response.getStatusCode().is2xxSuccessful()) {
-            Map body = response.getBody();
-            Map route = (Map) ((List) ((Map) body.get("route")).get("traoptimal")).get(0);
-            List<List<Double>> path = (List<List<Double>>) route.get("path");
-
-            // lon,lat → lat,lon 변환
-            List<double[]> roadPath = new ArrayList<>();
-            for (List<Double> point : path) {
-                roadPath.add(new double[]{point.get(1), point.get(0)});
-            }
-            return roadPath;
+            return response.getBody();
         } else {
             throw new RuntimeException("Failed to call Directions API: " + response.getStatusCode());
         }
