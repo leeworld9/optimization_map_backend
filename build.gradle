@@ -27,14 +27,15 @@ repositories {
 }
 
 dependencies {
-	//implementation 'org.springframework.boot:spring-boot-starter-data-jpa
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	runtimeOnly 'com.h2database:h2'
 
-	// ortools
+	/* ortools */
 	implementation 'com.google.protobuf:protobuf-java:4.26.1'
 	implementation 'net.java.dev.jna:jna-platform:5.14.0'
 	//'libs' 폴더에 있는 JAR를 의존성으로 추가
