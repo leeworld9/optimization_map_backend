@@ -34,7 +34,7 @@ TSP(외판원 문제) 알고리즘과 지도 API를 결합하여
 > Flutter 클라이언트와 연동하여  
 > 다중 경유지 기반 경로 계산 및 지도 시각화 시연
 > 
-[데모 영상 보기](https://github.com/leeworld9/optimization_map_frontend/demo/demo.mp4)
+[데모 영상 보기](https://github.com/leeworld9/optimization_map_frontend/blob/main/demo/demo.mp4)
 
 ---
 
